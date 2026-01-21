@@ -2,11 +2,11 @@ import { nansenClient } from '../api/nansen-client';
 import { repositories } from '../database/repositories';
 import { config } from '../utils/config';
 import { logger } from '../utils/logger';
-import { Chain, SmartMoneyDexTrade } from '../types/nansen';
+import { Chain, SmartMoneyDexTrade, TokenScreenerData } from '../types/nansen';
 import { Token } from '../types/trading';
 
 export class TokenDiscovery {
-  async discoverNewTokens(chains: Chain[], maxAgeDays: number): Promise<Token[]> {
+  async discoverNewTokens(chains: Chain[], maxAgeDays: number = 7): Promise<Token[]> {
     logger.info(`Discovering tokens on chains: ${chains.join(', ')}`);
 
     const discoveredTokens: Token[] = [];
@@ -25,15 +25,15 @@ export class TokenDiscovery {
   }
 
   private async discoverTokensOnChain(chain: Chain, maxAgeDays: number): Promise<Token[]> {
-    const trades = await nansenClient.smartMoneyDexTrades({
+    logger.info(`Discovering tokens on ${chain} with Smart Money DEX Trades (max_age=${maxAgeDays}d, max_mcap=$15M)`);
+
+    // Use Smart Money DEX Trades endpoint (Token Screener endpoint appears unavailable)
+    const response = await nansenClient.smartMoneyDexTrades({
       chains: [chain],
       filters: {
         token_bought_age_days: {
           min: 0,
           max: maxAgeDays,
-        },
-        trade_value_usd: {
-          min: config.filtering.minLiquidityUsd / 100,
         },
       },
       pagination: {
@@ -42,84 +42,76 @@ export class TokenDiscovery {
       },
     });
 
-    const uniqueTokens = this.extractUniqueTokens(chain, trades.data);
+    logger.info(`Retrieved ${response.data.length} smart money trades`);
+
+    // Extract unique tokens and filter by market cap
+    const tokenMap = new Map<string, {
+      address: string;
+      symbol: string;
+      age_days: number;
+      market_cap_usd: number;
+      price_usd: number;
+      trade_count: number;
+      total_volume: number;
+    }>();
+
+    for (const trade of response.data) {
+      const address = trade.token_bought_address;
+      const marketCap = trade.token_bought_market_cap_usd || 0;
+
+      // Apply max market cap filter ($15M)
+      if (marketCap > 15000000) {
+        continue;
+      }
+
+      if (!tokenMap.has(address)) {
+        tokenMap.set(address, {
+          address,
+          symbol: trade.token_bought_symbol,
+          age_days: trade.token_bought_age_days,
+          market_cap_usd: marketCap,
+          price_usd: trade.trade_value_usd / (trade.token_bought_amount || 1),
+          trade_count: 1,
+          total_volume: trade.trade_value_usd,
+        });
+      } else {
+        const existing = tokenMap.get(address)!;
+        existing.trade_count++;
+        existing.total_volume += trade.trade_value_usd;
+      }
+    }
+
+    // Convert to array and sort by trade count (more smart money activity = better)
+    const tokens = Array.from(tokenMap.values())
+      .sort((a, b) => b.trade_count - a.trade_count);
+
+    logger.info(`Found ${tokens.length} unique tokens with smart money activity`);
+
+    // Save tokens to database
     const savedTokens: Token[] = [];
 
-    for (const tokenData of uniqueTokens) {
+    for (const tokenData of tokens) {
       const token: Token = {
         chain,
-        address: tokenData.token_address,
+        address: tokenData.address,
         symbol: tokenData.symbol,
         discovered_at: new Date().toISOString(),
         token_age_days: tokenData.age_days,
         market_cap_usd: tokenData.market_cap_usd,
-        liquidity_usd: tokenData.liquidity_estimate,
-        first_seen_price_usd: tokenData.price_estimate,
+        liquidity_usd: tokenData.total_volume * 10, // Estimate liquidity
+        first_seen_price_usd: tokenData.price_usd,
       };
 
       try {
         const saved = repositories.tokens.findOrCreate(token);
         savedTokens.push(saved);
-        logger.debug(`Token saved: ${saved.symbol} (${saved.address}) on ${chain}`);
+        logger.info(`✓ ${saved.symbol} - Age: ${saved.token_age_days.toFixed(1)}d, MCap: $${(saved.market_cap_usd / 1000000).toFixed(2)}M, SM Trades: ${tokenData.trade_count}`);
       } catch (error) {
         logger.error(`Failed to save token ${token.symbol}`, error);
       }
     }
 
-    logger.info(`Found ${savedTokens.length} unique tokens on ${chain}`);
     return savedTokens;
-  }
-
-  private extractUniqueTokens(
-    chain: Chain,
-    trades: SmartMoneyDexTrade[]
-  ): Array<{
-    token_address: string;
-    symbol: string;
-    age_days: number;
-    market_cap_usd: number;
-    liquidity_estimate: number;
-    price_estimate: number;
-  }> {
-    const tokenMap = new Map<
-      string,
-      {
-        token_address: string;
-        symbol: string;
-        age_days: number;
-        market_cap_usd: number;
-        liquidity_estimate: number;
-        price_estimate: number;
-        total_volume: number;
-      }
-    >();
-
-    for (const trade of trades) {
-      const address = trade.token_bought_address;
-
-      if (!tokenMap.has(address)) {
-        tokenMap.set(address, {
-          token_address: address,
-          symbol: trade.token_bought_symbol,
-          age_days: trade.token_bought_age_days,
-          market_cap_usd: trade.token_bought_market_cap_usd,
-          liquidity_estimate: trade.trade_value_usd * 10,
-          price_estimate: trade.trade_value_usd / trade.token_bought_amount,
-          total_volume: trade.trade_value_usd,
-        });
-      } else {
-        const existing = tokenMap.get(address)!;
-        existing.total_volume += trade.trade_value_usd;
-        existing.liquidity_estimate = Math.max(
-          existing.liquidity_estimate,
-          trade.trade_value_usd * 10
-        );
-      }
-    }
-
-    return Array.from(tokenMap.values())
-      .filter((token) => token.liquidity_estimate >= config.filtering.minLiquidityUsd)
-      .sort((a, b) => b.total_volume - a.total_volume);
   }
 
   async monitorSmartMoneyTrades(chains: Chain[]): Promise<SmartMoneyDexTrade[]> {
