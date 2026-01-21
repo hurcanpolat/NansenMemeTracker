@@ -43,7 +43,7 @@ export class NansenClient {
     try {
       logger.debug('Token Screener request', request);
       const response = await this.client.post<TokenScreenerResponse>(
-        '/tgm/token-screener',
+        '/token-screener',
         request
       );
       logger.debug(`Token Screener found ${response.data.data.length} tokens`);

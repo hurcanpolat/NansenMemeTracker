@@ -60,16 +60,20 @@ export interface TokenScreenerResponse {
 export interface TokenScreenerData {
   chain: Chain;
   token_address: string;
-  symbol: string;
+  token_symbol: string;
   token_age_days: number;
   market_cap_usd: number;
-  liquidity_usd: number;
+  liquidity: number;
   price_usd: number;
-  price_change_percent: number;
-  buy_volume_usd: number;
-  sell_volume_usd: number;
-  net_flow_usd: number;
-  fdv_to_market_cap_ratio: number;
+  price_change: number;
+  buy_volume: number;
+  sell_volume: number;
+  netflow: number;
+  fdv: number;
+  fdv_mc_ratio: number;
+  volume: number;
+  inflow_fdv_ratio: number;
+  outflow_fdv_ratio: number;
 }
 
 // Smart Money DEX Trades Types

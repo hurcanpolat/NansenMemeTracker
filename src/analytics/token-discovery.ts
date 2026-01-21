@@ -25,15 +25,20 @@ export class TokenDiscovery {
   }
 
   private async discoverTokensOnChain(chain: Chain, maxAgeDays: number): Promise<Token[]> {
-    logger.info(`Discovering tokens on ${chain} with Smart Money DEX Trades (max_age=${maxAgeDays}d, max_mcap=$15M)`);
+    logger.info(`Discovering tokens on ${chain} via Token Screener (max_age=${maxAgeDays}d, max_mcap=$15M)`);
 
-    // Use Smart Money DEX Trades endpoint (Token Screener endpoint appears unavailable)
-    const response = await nansenClient.smartMoneyDexTrades({
+    // Use Token Screener endpoint which includes netflow data
+    const response = await nansenClient.tokenScreener({
       chains: [chain],
+      timeframe: '24h',
       filters: {
-        token_bought_age_days: {
+        only_smart_money: true,
+        token_age_days: {
           min: 0,
           max: maxAgeDays,
+        },
+        market_cap_usd: {
+          max: 15000000,
         },
       },
       pagination: {
@@ -42,70 +47,35 @@ export class TokenDiscovery {
       },
     });
 
-    logger.info(`Retrieved ${response.data.length} smart money trades`);
+    logger.info(`Retrieved ${response.data.length} tokens from Token Screener`);
 
-    // Extract unique tokens and filter by market cap
-    const tokenMap = new Map<string, {
-      address: string;
-      symbol: string;
-      age_days: number;
-      market_cap_usd: number;
-      price_usd: number;
-      trade_count: number;
-      total_volume: number;
-    }>();
+    // Sort by netflow (already included in response)
+    const sortedTokens = response.data.sort((a, b) => b.netflow - a.netflow);
 
-    for (const trade of response.data) {
-      const address = trade.token_bought_address;
-      const marketCap = trade.token_bought_market_cap_usd || 0;
-
-      // Apply max market cap filter ($15M)
-      if (marketCap > 15000000) {
-        continue;
-      }
-
-      if (!tokenMap.has(address)) {
-        tokenMap.set(address, {
-          address,
-          symbol: trade.token_bought_symbol,
-          age_days: trade.token_bought_age_days,
-          market_cap_usd: marketCap,
-          price_usd: trade.trade_value_usd / (trade.token_bought_amount || 1),
-          trade_count: 1,
-          total_volume: trade.trade_value_usd,
-        });
-      } else {
-        const existing = tokenMap.get(address)!;
-        existing.trade_count++;
-        existing.total_volume += trade.trade_value_usd;
-      }
-    }
-
-    // Convert to array and sort by trade count (more smart money activity = better)
-    const tokens = Array.from(tokenMap.values())
-      .sort((a, b) => b.trade_count - a.trade_count);
-
-    logger.info(`Found ${tokens.length} unique tokens with smart money activity`);
+    logger.info(`Sorted ${sortedTokens.length} tokens by netflow`);
 
     // Save tokens to database
     const savedTokens: Token[] = [];
 
-    for (const tokenData of tokens) {
+    for (const tokenData of sortedTokens) {
       const token: Token = {
         chain,
-        address: tokenData.address,
-        symbol: tokenData.symbol,
+        address: tokenData.token_address,
+        symbol: tokenData.token_symbol,
         discovered_at: new Date().toISOString(),
-        token_age_days: tokenData.age_days,
+        token_age_days: tokenData.token_age_days,
         market_cap_usd: tokenData.market_cap_usd,
-        liquidity_usd: tokenData.total_volume * 10, // Estimate liquidity
+        liquidity_usd: tokenData.liquidity,
         first_seen_price_usd: tokenData.price_usd,
       };
 
       try {
         const saved = repositories.tokens.findOrCreate(token);
         savedTokens.push(saved);
-        logger.info(`✓ ${saved.symbol} - Age: ${saved.token_age_days.toFixed(1)}d, MCap: $${(saved.market_cap_usd / 1000000).toFixed(2)}M, SM Trades: ${tokenData.trade_count}`);
+        const netflowFormatted = tokenData.netflow >= 0
+          ? `+$${(tokenData.netflow / 1000).toFixed(1)}K`
+          : `-$${(Math.abs(tokenData.netflow) / 1000).toFixed(1)}K`;
+        logger.info(`✓ ${saved.symbol} - Age: ${saved.token_age_days.toFixed(1)}d, MCap: $${(saved.market_cap_usd / 1000000).toFixed(2)}M, Netflow: ${netflowFormatted}`);
       } catch (error) {
         logger.error(`Failed to save token ${token.symbol}`, error);
       }
