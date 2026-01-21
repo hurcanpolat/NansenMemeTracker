@@ -1,0 +1,34 @@
+{
+  "name": "nansen-trading-terminal",
+  "version": "1.0.0",
+  "description": "Trading terminal using Nansen API for smart money analytics and signal generation",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "backtest": "tsx src/backtest/runner.ts",
+    "monitor": "tsx src/monitor/live.ts",
+    "dashboard": "tsx src/dashboard/server.ts"
+  },
+  "keywords": ["nansen", "trading", "defi", "analytics"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.5",
+    "better-sqlite3": "^11.8.1",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "ws": "^8.16.0",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.7",
+    "@types/ws": "^8.5.10",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}

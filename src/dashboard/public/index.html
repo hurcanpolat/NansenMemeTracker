@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nansen Trading Terminal</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+            background: #0a0a0a;
+            color: #00ff00;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        header {
+            border: 2px solid #00ff00;
+            padding: 20px;
+            margin-bottom: 20px;
+            background: #000;
+        }
+
+        h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .stat-box {
+            border: 1px solid #00ff00;
+            padding: 15px;
+            background: rgba(0, 255, 0, 0.05);
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: #00aa00;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: bold;
+        }
+
+        .controls {
+            border: 2px solid #00ff00;
+            padding: 15px;
+            margin-bottom: 20px;
+            background: #000;
+        }
+
+        button {
+            background: #000;
+            color: #00ff00;
+            border: 2px solid #00ff00;
+            padding: 10px 20px;
+            font-family: inherit;
+            font-size: 14px;
+            cursor: pointer;
+            margin-right: 10px;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background: #00ff00;
+            color: #000;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .section {
+            border: 2px solid #00ff00;
+            padding: 20px;
+            margin-bottom: 20px;
+            background: #000;
+        }
+
+        .section-title {
+            font-size: 18px;
+            margin-bottom: 15px;
+            color: #00ff00;
+            text-transform: uppercase;
+            border-bottom: 1px solid #00ff00;
+            padding-bottom: 10px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 10px;
+            border: 1px solid #00ff00;
+        }
+
+        th {
+            background: rgba(0, 255, 0, 0.1);
+            font-weight: bold;
+            font-size: 12px;
+        }
+
+        td {
+            font-size: 11px;
+        }
+
+        .positive {
+            color: #00ff00;
+        }
+
+        .negative {
+            color: #ff0000;
+        }
+
+        .chain-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border: 1px solid #00ff00;
+            font-size: 10px;
+            margin-right: 5px;
+        }
+
+        .status {
+            padding: 3px 8px;
+            border: 1px solid;
+            font-size: 10px;
+            display: inline-block;
+        }
+
+        .status.active {
+            border-color: #00ff00;
+            color: #00ff00;
+        }
+
+        .status.closed {
+            border-color: #666;
+            color: #666;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #00aa00;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 40px;
+            color: #00aa00;
+        }
+
+        .ws-status {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .ws-status.connected {
+            background: #00ff00;
+            box-shadow: 0 0 10px #00ff00;
+        }
+
+        .ws-status.disconnected {
+            background: #ff0000;
+        }
+
+        .timestamp {
+            color: #00aa00;
+            font-size: 11px;
+        }
+
+        .tp-levels {
+            font-size: 10px;
+            line-height: 1.5;
+        }
+
+        .fib-levels {
+            font-size: 9px;
+            color: #00aa00;
+            line-height: 1.4;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔥 Nansen Trading Terminal</h1>
+            <p style="color: #00aa00; margin-top: 5px;">
+                <span class="ws-status" id="wsStatus"></span>
+                <span id="connectionStatus">Connecting...</span> |
+                <span class="timestamp" id="lastUpdate">Last update: --</span>
+            </p>
+            <div class="stats" id="stats">
+                <div class="stat-box">
+                    <div class="stat-label">SIGNALS TODAY</div>
+                    <div class="stat-value" id="signalsToday">--</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">ACTIVE SIGNALS</div>
+                    <div class="stat-value" id="activeSignals">--</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">AVG RETURN TODAY</div>
+                    <div class="stat-value" id="avgReturn">--</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">BEST PERFORMER</div>
+                    <div class="stat-value" id="bestPerformer">--</div>
+                </div>
+            </div>
+        </header>
+
+        <div class="controls">
+            <button onclick="discoverTokens()">🔍 Discover New Tokens</button>
+            <button onclick="refreshSignals()">🔄 Refresh Signals</button>
+            <button onclick="refreshStats()">📊 Refresh Stats</button>
+        </div>
+
+        <div class="section">
+            <div class="section-title">🎯 Active Buy Signals</div>
+            <div id="activeSignalsList">
+                <div class="loading">Loading signals...</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">📋 Recent Tokens</div>
+            <div id="recentTokensList">
+                <div class="loading">Loading tokens...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:3000/api';
+        const WS_URL = 'ws://localhost:3001';
+        let ws;
+
+        function connectWebSocket() {
+            ws = new WebSocket(WS_URL);
+
+            ws.onopen = () => {
+                document.getElementById('wsStatus').className = 'ws-status connected';
+                document.getElementById('connectionStatus').textContent = 'Connected';
+                console.log('WebSocket connected');
+            };
+
+            ws.onclose = () => {
+                document.getElementById('wsStatus').className = 'ws-status disconnected';
+                document.getElementById('connectionStatus').textContent = 'Disconnected';
+                console.log('WebSocket disconnected, reconnecting...');
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                console.log('WebSocket message:', message);
+
+                if (message.type === 'tokens_discovered') {
+                    refreshTokens();
+                } else if (message.type === 'signals_generated') {
+                    refreshSignals();
+                    refreshStats();
+                }
+            };
+        }
+
+        async function fetchData(endpoint) {
+            const response = await fetch(`${API_URL}${endpoint}`);
+            const data = await response.json();
+            return data.success ? data.data : null;
+        }
+
+        async function refreshStats() {
+            const stats = await fetchData('/stats');
+            if (stats) {
+                document.getElementById('signalsToday').textContent = stats.total_signals_today;
+                document.getElementById('activeSignals').textContent = stats.active_signals;
+                document.getElementById('avgReturn').textContent = stats.avg_return_today.toFixed(2) + '%';
+                document.getElementById('bestPerformer').textContent =
+                    stats.best_performer ?
+                    `${stats.best_performer.symbol} (${stats.best_performer.return_percent.toFixed(1)}%)` :
+                    'N/A';
+            }
+            updateTimestamp();
+        }
+
+        async function refreshSignals() {
+            const signals = await fetchData('/signals/active');
+            const container = document.getElementById('activeSignalsList');
+
+            if (!signals || signals.length === 0) {
+                container.innerHTML = '<div class="empty">No active signals</div>';
+                return;
+            }
+
+            let html = '<table><thead><tr>';
+            html += '<th>TOKEN</th><th>CHAIN</th><th>ENTRY</th><th>CURRENT</th>';
+            html += '<th>SM COUNT</th><th>FLOW SCORE</th><th>TAKE PROFIT</th><th>FIB LEVELS</th>';
+            html += '<th>GENERATED</th></tr></thead><tbody>';
+
+            signals.forEach(signal => {
+                const returnPct = signal.current_price_usd ?
+                    ((signal.current_price_usd - signal.entry_price_usd) / signal.entry_price_usd * 100).toFixed(2) :
+                    0;
+                const returnClass = returnPct >= 0 ? 'positive' : 'negative';
+
+                html += '<tr>';
+                html += `<td><strong>${signal.symbol}</strong></td>`;
+                html += `<td><span class="chain-badge">${signal.chain.toUpperCase()}</span></td>`;
+                html += `<td>$${signal.entry_price_usd.toFixed(6)}</td>`;
+                html += `<td class="${returnClass}">$${(signal.current_price_usd || signal.entry_price_usd).toFixed(6)} (${returnPct}%)</td>`;
+                html += `<td>${signal.smart_money_count}</td>`;
+                html += `<td>${signal.flow_score.toFixed(1)}/100</td>`;
+                html += `<td class="tp-levels">`;
+                html += `TP1: $${signal.tp1_price.toFixed(6)} (${signal.tp1_percent}%)<br>`;
+                html += `TP2: $${signal.tp2_price.toFixed(6)} (${signal.tp2_percent}%)<br>`;
+                html += `TP3: $${signal.tp3_price.toFixed(6)} (${signal.tp3_percent}%)`;
+                html += `</td>`;
+                html += `<td class="fib-levels">`;
+                html += `0.618: $${signal.fib_618?.toFixed(6)}<br>`;
+                html += `1.618: $${signal.fib_1618?.toFixed(6)}`;
+                html += `</td>`;
+                html += `<td class="timestamp">${new Date(signal.generated_at).toLocaleString()}</td>`;
+                html += '</tr>';
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        async function refreshTokens() {
+            const tokens = await fetchData('/tokens/recent?limit=20');
+            const container = document.getElementById('recentTokensList');
+
+            if (!tokens || tokens.length === 0) {
+                container.innerHTML = '<div class="empty">No tokens discovered yet</div>';
+                return;
+            }
+
+            let html = '<table><thead><tr>';
+            html += '<th>SYMBOL</th><th>CHAIN</th><th>AGE (DAYS)</th><th>MARKET CAP</th>';
+            html += '<th>LIQUIDITY</th><th>PRICE</th><th>DISCOVERED</th></tr></thead><tbody>';
+
+            tokens.forEach(token => {
+                html += '<tr>';
+                html += `<td><strong>${token.symbol}</strong></td>`;
+                html += `<td><span class="chain-badge">${token.chain.toUpperCase()}</span></td>`;
+                html += `<td>${token.token_age_days.toFixed(1)}</td>`;
+                html += `<td>$${token.market_cap_usd.toLocaleString()}</td>`;
+                html += `<td>$${token.liquidity_usd.toLocaleString()}</td>`;
+                html += `<td>$${token.first_seen_price_usd.toFixed(6)}</td>`;
+                html += `<td class="timestamp">${new Date(token.discovered_at).toLocaleString()}</td>`;
+                html += '</tr>';
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        async function discoverTokens() {
+            const button = event.target;
+            button.disabled = true;
+            button.textContent = '🔍 Discovering...';
+
+            try {
+                const response = await fetch(`${API_URL}/analysis/discover`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ maxAgeDays: 1 })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    alert(`Discovered ${data.data.length} new tokens!`);
+                    refreshTokens();
+                    refreshStats();
+                }
+            } catch (error) {
+                alert('Discovery failed: ' + error.message);
+            } finally {
+                button.disabled = false;
+                button.textContent = '🔍 Discover New Tokens';
+            }
+        }
+
+        function updateTimestamp() {
+            document.getElementById('lastUpdate').textContent =
+                'Last update: ' + new Date().toLocaleTimeString();
+        }
+
+        connectWebSocket();
+        refreshStats();
+        refreshSignals();
+        refreshTokens();
+
+        setInterval(refreshStats, 30000);
+        setInterval(refreshSignals, 60000);
+    </script>
+</body>
+</html>
